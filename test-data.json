@@ -1,0 +1,4 @@
+{
+    "title": "Test Document",
+    "content": "This is a test document to demonstrate MongoDB storage and Redis caching"
+} 
