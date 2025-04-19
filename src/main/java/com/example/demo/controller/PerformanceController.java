@@ -1,5 +1,7 @@
 package com.example.demo.controller;
 
+import com.example.demo.model.CdsHooksRequest;
+import com.example.demo.model.CdsHooksResponse;
 import com.example.demo.model.IcdCodeMapping;
 import com.example.demo.service.PerformanceComparisonService;
 import com.example.demo.service.PerformanceTestService;
@@ -7,8 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.Period;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/performance")
@@ -60,9 +65,63 @@ public class PerformanceController {
         return ResponseEntity.ok(results);
     }
 
+    @GetMapping("/search/advanced")
+    public ResponseEntity<List<IcdCodeMapping>> advancedSearch(
+            @RequestParam(required = false) String diagnosis,
+            @RequestParam(required = false) Integer minAge,
+            @RequestParam(required = false) Integer maxAge,
+            @RequestParam(required = false) String ndcCodeClass,
+            @RequestParam(required = false) String ndcCode) {
+        List<IcdCodeMapping> results = performanceService.advancedSearch(
+            diagnosis, minAge, maxAge, ndcCodeClass, ndcCode);
+        return ResponseEntity.ok(results);
+    }
+
     @DeleteMapping("/mapping/{diagnosisId}")
     public ResponseEntity<Void> deleteById(@PathVariable String diagnosisId) {
         performanceService.deleteById(diagnosisId);
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/cds-hooks")
+    public ResponseEntity<CdsHooksResponse> getRecommendations(@RequestBody CdsHooksRequest request) {
+        // Extract patient age from birthDate
+        int patientAge = calculateAge(request.getPrefetch().getPatient().getBirthDate());
+        
+        // Get recommendations based on the criteria
+        List<IcdCodeMapping> recommendations = performanceService.findByIcdCodesContainingAndPatientAgeBetweenAndNdcCodeClassAndNdcCodesContaining(
+            request.getContext().getDiagnoses().get(0), // Using first diagnosis code
+            patientAge,
+            patientAge,
+            request.getPrefetch().getMedication().getNdcCodeClass(),
+            request.getPrefetch().getMedication().getNdcCode()
+        );
+
+        // Convert recommendations to CDS Hooks response
+        CdsHooksResponse response = new CdsHooksResponse();
+        List<CdsHooksResponse.Card> cards = recommendations.stream()
+            .map(mapping -> {
+                CdsHooksResponse.Card card = new CdsHooksResponse.Card();
+                card.setSummary("Recommendation for " + mapping.getDiagnosisRecommendation());
+                card.setDetail(mapping.getDiagnosisRecommendation()); // Using diagnosis as detail
+                card.setIndicator("info");
+                
+                CdsHooksResponse.Source source = new CdsHooksResponse.Source();
+                source.setLabel("ICD Mapping Service");
+                source.setUrl("https://example.com/icd-mapping");
+                card.setSource(source);
+                
+                return card;
+            })
+            .collect(Collectors.toList());
+        
+        response.setCards(cards);
+        return ResponseEntity.ok(response);
+    }
+
+    private int calculateAge(String birthDate) {
+        // Simple age calculation - in production, use a proper date library
+        LocalDate birth = LocalDate.parse(birthDate);
+        return Period.between(birth, LocalDate.now()).getYears();
     }
 } 
